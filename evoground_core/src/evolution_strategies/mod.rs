@@ -68,52 +68,40 @@ impl Select for SimpleSelector {
     }
 }
 
-pub struct EvolutionStrategy<T, U> {
-    population: Vec<f64>,
-    mutator: T,
-    selector: U,
+pub struct OnePlusOneStrategy {
+    individual: f64,
+    mutator: SimpleMutator,
+    objective: fn(f64) -> f64,
 }
 
-impl<T: Mutate, U: Select> EvolutionStrategy<T, U> {
-    pub fn new(population: Vec<f64>, mutator: T, selector: U) -> EvolutionStrategy<T, U> {
-        EvolutionStrategy {
-            population,
+impl OnePlusOneStrategy {
+    pub fn new(initial_value: f64, mutator: SimpleMutator, objective: fn(f64) -> f64) -> Self {
+        OnePlusOneStrategy {
+            individual: initial_value,
             mutator,
-            selector,
+            objective,
         }
     }
 
     pub fn run(&mut self, generations: usize) {
         for _ in 0..generations {
-            // Clone and mutate offspring from the current population
-            let mut offspring = self.population.clone();
-            for individual in &mut offspring {
-                self.mutator.mutate(individual);
+            let mut offspring = self.individual;
+            self.mutator.mutate(&mut offspring);
+            if (self.objective)(offspring) > (self.objective)(self.individual) {
+                self.individual = offspring;
             }
-
-            // Combine the parent and offspring populations
-            let mut combined_population = self.population.clone();
-            combined_population.extend(offspring);
-            // println!("Combined population: {:?}", combined_population);
-
-            // Environment selection: Select the best individuals from the combined population
-            self.population = self.selector.select(&combined_population);
         }
     }
 
-    pub fn print_population(&self) {
-        println!("Population: {:?}", self.population);
-    }
-
     pub fn best_individual(&self) -> f64 {
-        self.population.last().unwrap().clone()
+        self.individual
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::Rng; // Ensure you have the `rand` crate in your `Cargo.toml`
+    use rand::Rng; // Import necessary items from the outer module
 
     #[test]
     fn test_one_plus_one_es_multiple_runs() {
@@ -122,25 +110,22 @@ mod tests {
         let mut worst_distance = 0.0;
 
         for _ in 0..runs {
-            let selector = SimpleSelector::new(1, |x: &f64| -> f64 { -(x - 2.0).powi(2) + 10.0 });
-            let mutator = SimpleMutator::new(0.1, 0.5);
+            let mutator = SimpleMutator::new(0.1, 0.5); // Example mutation parameters
+            let objective = |x: f64| -> f64 { -(x - 2.0).powi(2) + 10.0 }; // Example objective function
             let mut rand = rand::thread_rng();
-            // Initialize the population with one parent
-            let initial_population = vec![rand.gen_range(0.0..5.0)];
+            let initial_value = rand.gen_range(0.0..5.0); // Initialize the individual with a random value
 
-            let mut strategy = EvolutionStrategy::new(initial_population, mutator, selector);
+            let mut strategy = OnePlusOneStrategy::new(initial_value, mutator, objective);
 
-            // Run the evolutionary strategy for a set number of generations
+            // Run the evolutionary strategy for 1000 generations
             strategy.run(1000);
 
-            // Ensure the final population contains one individual
-            assert_eq!(strategy.population.len(), 1);
+            let distance = (strategy.best_individual() - 2.0).abs();
+            total_distance += distance;
 
-            // Add the distance from the optimal value to the total distance
-            total_distance += (strategy.best_individual() - 2.0).abs();
-
-            if (strategy.best_individual() - 2.0).abs() > worst_distance {
-                worst_distance = (strategy.best_individual() - 2.0).abs();
+            // Update worst distance if the current run's distance is greater
+            if distance > worst_distance {
+                worst_distance = distance;
             }
         }
 
@@ -152,7 +137,7 @@ mod tests {
             average_distance, worst_distance
         );
 
-        // Optionally, assert on the average distance if there's an expected threshold
+        // Assert on the average distance to check the effectiveness of the strategy
         assert!(
             average_distance < 0.1,
             "The average distance from the optimal value is too high: {}",
